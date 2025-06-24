@@ -17,6 +17,14 @@ if (supabaseUrl && supabaseServiceKey) {
   console.log('❌ Missing Supabase credentials');
 }
 
+// Import route handlers
+const authRoutes = require('./routes/auth');
+const dashboardRoutes = require('./routes/dashboard');
+const productsRoutes = require('./routes/products');
+const reportsRoutes = require('./routes/reports');
+const uploadRoutes = require('./routes/upload');
+const productMetricsRoutes = require('./routes/product-metrics');
+
 // Helper function to parse JSON body
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -70,9 +78,10 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/health') {
       const response = {
         status: 'OK',
-        message: 'BiZense Backend is running!',
+        message: 'BiZense V2 Backend is running!',
         timestamp: new Date().toISOString(),
-        supabase: supabase ? 'Connected' : 'Not connected'
+        supabase: supabase ? 'Connected' : 'Not connected',
+        version: '2.0.0'
       };
       res.writeHead(200);
       res.end(JSON.stringify(response));
@@ -95,7 +104,8 @@ const server = http.createServer(async (req, res) => {
       const response = {
         message: 'Database connection successful!',
         error: error ? error.message : null,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        tablesChecked: ['profiles', 'products', 'campaign_reports', 'campaign_daily_stats', 'product_metrics']
       };
       
       res.writeHead(200);
@@ -103,138 +113,84 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Dashboard route
-    if (pathname === '/api/dashboard' && method === 'GET') {
-      const user = await getUserFromToken(req.headers.authorization);
-      
-      const { data: campaigns, error } = await supabase
-        .from('campaign_reports')
-        .select('*')
-        .eq('user_id', user.id);
-
-      if (error) throw new Error(error.message);
-
-      // Calculate KPIs
-      const totalSpend = campaigns.reduce((sum, c) => sum + (c.amount_spent || 0), 0);
-      const totalRevenue = campaigns.reduce((sum, c) => sum + (c.revenue || 0), 0);
-      const totalConversions = campaigns.reduce((sum, c) => sum + (c.conversions || 0), 0);
-      const roas = totalSpend > 0 ? (totalRevenue / totalSpend) : 0;
-
-      // Platform breakdown
-      const platformData = campaigns.reduce((acc, campaign) => {
-        const platform = campaign.platform || 'unknown';
-        if (!acc[platform]) {
-          acc[platform] = { spend: 0, revenue: 0, conversions: 0 };
-        }
-        acc[platform].spend += campaign.amount_spent || 0;
-        acc[platform].revenue += campaign.revenue || 0;
-        acc[platform].conversions += campaign.conversions || 0;
-        return acc;
-      }, {});
-
-      // Recent uploads
-      const { data: recentUploads } = await supabase
-        .from('upload_history')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('upload_date', { ascending: false })
-        .limit(5);
-
-      const response = {
-        kpis: {
-          totalSpend: totalSpend.toFixed(2),
-          totalRevenue: totalRevenue.toFixed(2),
-          roas: roas.toFixed(2),
-          totalOrders: totalConversions
-        },
-        platformData,
-        recentUploads: recentUploads || []
-      };
-
-      res.writeHead(200);
-      res.end(JSON.stringify(response));
+    // Route to enhanced dashboard API
+    if (pathname.startsWith('/api/dashboard')) {
+      req.url = pathname.replace('/api/dashboard', '');
+      req.query = parsedUrl.query;
+      dashboardRoutes(req, res);
       return;
     }
 
-    // Simple upload route (we'll enhance this later)
-    if (pathname === '/api/upload' && method === 'POST') {
-      const user = await getUserFromToken(req.headers.authorization);
-      
-      // For now, just return success
-      res.writeHead(200);
-      res.end(JSON.stringify({
-        message: 'Upload endpoint ready',
-        user: user.email
-      }));
-      return;
-    }
-
-    // Products routes
-    if (pathname === '/api/products' && method === 'GET') {
-      const user = await getUserFromToken(req.headers.authorization);
-      
-      const { data: products, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw new Error(error.message);
-
-      res.writeHead(200);
-      res.end(JSON.stringify(products || []));
-      return;
-    }
-
-    if (pathname === '/api/products' && method === 'POST') {
-      const user = await getUserFromToken(req.headers.authorization);
-      const body = await parseBody(req);
-      
-      const { product_name, revenue_per_conversion } = body;
-      
-      if (!product_name) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: 'Product name is required' }));
-        return;
+    // Route to enhanced products API
+    if (pathname.startsWith('/api/products')) {
+      req.url = pathname.replace('/api/products', '');
+      req.params = {};
+      if (pathname.match(/\/api\/products\/(.+)/)) {
+        req.params.id = pathname.match(/\/api\/products\/(.+)/)[1];
       }
-
-      const { data, error } = await supabase
-        .from('products')
-        .insert({
-          user_id: user.id,
-          product_name,
-          revenue_per_conversion: revenue_per_conversion || 0
-        })
-        .select()
-        .single();
-
-      if (error) throw new Error(error.message);
-
-      res.writeHead(200);
-      res.end(JSON.stringify(data));
+      productsRoutes(req, res);
       return;
     }
 
-    // Reports route
-    if (pathname === '/api/reports' && method === 'GET') {
-      const user = await getUserFromToken(req.headers.authorization);
+    // Route to NEW product metrics API
+    if (pathname.startsWith('/api/product-metrics')) {
+      req.url = pathname.replace('/api/product-metrics', '');
+      req.params = {};
       
-      const { data: uploads, error } = await supabase
-        .from('upload_history')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('upload_date', { ascending: false });
-
-      if (error) throw new Error(error.message);
-
-      res.writeHead(200);
-      res.end(JSON.stringify(uploads || []));
+      // Handle different product-metrics routes
+      if (pathname.match(/\/api\/product-metrics\/(.+)\/manual-update/)) {
+        req.params.productId = pathname.match(/\/api\/product-metrics\/(.+)\/manual-update/)[1];
+        req.url = '/' + req.params.productId + '/manual-update';
+      } else if (pathname.match(/\/api\/product-metrics\/(.+)/)) {
+        req.params.productId = pathname.match(/\/api\/product-metrics\/(.+)/)[1];
+        req.url = '/' + req.params.productId;
+      }
+      
+      productMetricsRoutes(req, res);
       return;
     }
 
-    // 404 for all other routes
+    // Route to enhanced upload API
+    if (pathname.startsWith('/api/upload')) {
+      req.url = pathname.replace('/api/upload', '');
+      uploadRoutes(req, res);
+      return;
+    }
+
+    // Route to reports API
+    if (pathname.startsWith('/api/reports')) {
+      req.url = pathname.replace('/api/reports', '');
+      req.params = {};
+      if (pathname.match(/\/api\/reports\/(.+)/)) {
+        req.params.id = pathname.match(/\/api\/reports\/(.+)/)[1];
+      }
+      reportsRoutes(req, res);
+      return;
+    }
+
+    // Route to auth API
+    if (pathname.startsWith('/api/auth')) {
+      req.url = pathname.replace('/api/auth', '');
+      authRoutes(req, res);
+      return;
+    }
+
+    // 404 for unmatched routes
     res.writeHead(404);
-    res.end(JSON.stringify({ error: 'Route not found' }));
+    res.end(JSON.stringify({ 
+      error: 'Not Found',
+      message: 'API endpoint not found',
+      availableEndpoints: [
+        '/api/health',
+        '/api/test-db',
+        '/api/dashboard',
+        '/api/products',
+        '/api/product-metrics',
+        '/api/upload',
+        '/api/reports',
+        '/api/auth'
+      ]
+    }));
 
   } catch (error) {
     console.error('Server error:', error);
@@ -244,7 +200,18 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 BiZense Server running on port ${PORT}`);
+  console.log(`🚀 BiZense V2 Backend running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`🗄️  Test DB: http://localhost:${PORT}/api/test-db`);
+  console.log(`🔗 Database test: http://localhost:${PORT}/api/test-db`);
 });
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('🛑 Shutting down BiZense V2 Backend...');
+  server.close(() => {
+    console.log('✅ Server closed');
+    process.exit(0);
+  });
+});
+
+module.exports = server;
