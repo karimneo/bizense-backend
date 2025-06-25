@@ -1,30 +1,9 @@
 const http = require('http');
 const url = require('url');
-const { createClient } = require('@supabase/supabase-js');
+const { supabaseAuthClient, supabaseServiceClient } = require('./config/supabase');
 require('dotenv').config();
 
 const PORT = process.env.PORT || 3001;
-
-// Initialize Supabase
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-let supabase;
-if (supabaseUrl && supabaseServiceKey) {
-  supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_KEY, // ⚠️ Must be the Service Role Key
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    }
-  );
-  console.log('✅ Supabase connected');
-} else {
-  console.log('❌ Missing Supabase credentials');
-}
 
 // Helper function to parse JSON body
 function parseBody(req) {
@@ -50,7 +29,7 @@ async function getUserFromToken(authHeader) {
   }
   
   const token = authHeader.replace('Bearer ', '');
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  const { data: { user }, error } = await supabaseAuthClient.auth.getUser(token);
   
   if (error) throw new Error(error.message);
   return user;
@@ -81,7 +60,7 @@ const server = http.createServer(async (req, res) => {
         status: 'OK',
         message: 'BiZense Backend is running!',
         timestamp: new Date().toISOString(),
-        supabase: supabase ? 'Connected' : 'Not connected'
+        supabase: supabaseServiceClient ? 'Connected' : 'Not connected'
       };
       res.writeHead(200);
       res.end(JSON.stringify(response));
@@ -90,13 +69,13 @@ const server = http.createServer(async (req, res) => {
 
     // Test Supabase connection
     if (pathname === '/api/test-db') {
-      if (!supabase) {
+      if (!supabaseServiceClient) {
         res.writeHead(500);
         res.end(JSON.stringify({ error: 'Supabase not configured' }));
         return;
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseServiceClient
         .from('profiles')
         .select('count')
         .limit(1);
@@ -116,7 +95,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/dashboard' && method === 'GET') {
       const user = await getUserFromToken(req.headers.authorization);
       
-      const { data: campaigns, error } = await supabase
+      const { data: campaigns, error } = await supabaseServiceClient
         .from('campaign_reports')
         .select('*')
         .eq('user_id', user.id);
@@ -142,7 +121,7 @@ const server = http.createServer(async (req, res) => {
       }, {});
 
       // Recent uploads
-      const { data: recentUploads } = await supabase
+      const { data: recentUploads } = await supabaseServiceClient
         .from('upload_history')
         .select('*')
         .eq('user_id', user.id)
@@ -182,7 +161,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/products' && method === 'GET') {
       const user = await getUserFromToken(req.headers.authorization);
       
-      const { data: products, error } = await supabase
+      const { data: products, error } = await supabaseServiceClient
         .from('products')
         .select('*')
         .eq('user_id', user.id)
@@ -207,7 +186,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseServiceClient
         .from('products')
         .insert({
           user_id: user.id,
@@ -228,7 +207,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/reports' && method === 'GET') {
       const user = await getUserFromToken(req.headers.authorization);
       
-      const { data: uploads, error } = await supabase
+      const { data: uploads, error } = await supabaseServiceClient
         .from('upload_history')
         .select('*')
         .eq('user_id', user.id)
