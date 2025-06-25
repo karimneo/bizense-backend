@@ -11,7 +11,16 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
 let supabase;
 if (supabaseUrl && supabaseServiceKey) {
-  supabase = createClient(supabaseUrl, supabaseServiceKey);
+  supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_KEY, // ⚠️ Must be the Service Role Key
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    }
+  );
   console.log('✅ Supabase connected');
 } else {
   console.log('❌ Missing Supabase credentials');
