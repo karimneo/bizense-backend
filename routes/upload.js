@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const supabase = require('../config/supabase');
+const { supabaseAuthClient, supabaseServiceClient } = require('../config/supabase');
 const multer = require('multer');
 const csv = require('csv-parser');
 const { Readable } = require('stream');
@@ -26,7 +26,7 @@ router.post('/', upload.single('file'), async (req, res) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: authError } = await supabaseAuthClient.auth.getUser(token);
     if (authError) {
       return res.status(401).json({ error: authError.message });
     }
@@ -94,7 +94,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     });
 
     // Insert into database
-    const { data: insertedData, error: insertError } = await supabase
+    const { data: insertedData, error: insertError } = await supabaseServiceClient
       .from('campaign_reports')
       .insert(processedData)
       .select();
@@ -105,7 +105,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
 
     // Create upload history record
-    const { error: historyError } = await supabase
+    const { error: historyError } = await supabaseServiceClient
       .from('upload_history')
       .insert({
         user_id: user.id,
