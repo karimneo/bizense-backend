@@ -58,32 +58,43 @@ router.post('/', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'CSV file is empty or invalid' });
     }
 
+    // Helper function to safely parse numbers
+    const parseNumber = (value) => {
+      if (!value) return 0;
+      const cleaned = String(value).replace(/[^0-9.-]/g, '');
+      const parsed = parseFloat(cleaned);
+      return isNaN(parsed) ? 0 : parsed;
+    };
+
+    // Map common CSV column names to our schema
+    const getColumnValue = (row, possibleNames) => {
+      for (const name of possibleNames) {
+        if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
+          return row[name];
+        }
+      }
+      return '';
+    };
+
+    // Helper function to extract product name from campaign name
+    const extractProductName = (campaignName) => {
+      if (!campaignName) return '';
+      // Extract everything before the first dash (ProductName - Platform - GEO)
+      const parts = campaignName.split(' - ');
+      return parts[0].trim();
+    };
+
     // Process and insert data
     const processedData = csvData.map(row => {
-      // Helper function to safely parse numbers
-      const parseNumber = (value) => {
-        if (!value) return 0;
-        const cleaned = String(value).replace(/[^0-9.-]/g, '');
-        const parsed = parseFloat(cleaned);
-        return isNaN(parsed) ? 0 : parsed;
-      };
-
-      // Map common CSV column names to our schema
-      const getColumnValue = (row, possibleNames) => {
-        for (const name of possibleNames) {
-          if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
-            return row[name];
-          }
-        }
-        return '';
-      };
-
+      const campaignName = getColumnValue(row, ['Campaign name', 'Campaign Name', 'campaign_name', 'Campaign']);
+      const extractedProductName = extractProductName(campaignName);
+      
       return {
         user_id: user.id,
         file_name: req.file.originalname,
         platform: platform,
-        campaign_name: getColumnValue(row, ['Campaign name', 'Campaign Name', 'campaign_name', 'Campaign']),
-        product_name: getColumnValue(row, ['Product name', 'Product Name', 'product_name', 'Product']),
+        campaign_name: campaignName,
+        product_name: extractedProductName, // Use extracted product name from campaign
         amount_spent: parseNumber(getColumnValue(row, ['Amount spent (CAD)', 'Amount Spent', 'Spend', 'Cost'])),
         revenue: parseNumber(getColumnValue(row, ['Purchase ROAS (return on ad spend)', 'Revenue', 'Purchase Value', 'Conversion Value'])),
         conversions: parseNumber(getColumnValue(row, ['Purchases', 'Conversions', 'Orders', 'Results'])),
@@ -93,6 +104,49 @@ router.post('/', upload.single('file'), async (req, res) => {
       };
     });
 
+    // Extract unique product names from processed data
+    const uniqueProductNames = [...new Set(processedData
+      .map(row => row.product_name)
+      .filter(name => name && name.trim() !== '')
+    )];
+
+    // Auto-create products that don't exist
+    for (const productName of uniqueProductNames) {
+      try {
+        // Check if product already exists
+        const { data: existingProduct } = await supabaseServiceClient
+          .from('products')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('product_name', productName)
+          .single();
+
+        if (!existingProduct) {
+          // Create new product
+          console.log(`Creating new product: ${productName}`);
+          const { error: productError } = await supabaseServiceClient
+            .from('products')
+            .insert({
+              user_id: user.id,
+              product_name: productName,
+              unit_cost: 0, // Default values - user can update manually
+              selling_price: 0,
+              units_delivered: 0,
+              stock_purchased: 0,
+              created_at: new Date().toISOString()
+            });
+
+          if (productError) {
+            console.error(`Error creating product ${productName}:`, productError);
+          } else {
+            console.log(`✅ Created product: ${productName}`);
+          }
+        }
+      } catch (error) {
+        console.error(`Error processing product ${productName}:`, error);
+      }
+    }
+
     // Insert into database
     const { data: insertedData, error: insertError } = await supabaseServiceClient
       .from('campaign_reports')
@@ -101,7 +155,12 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     if (insertError) {
       console.error('Insert error:', insertError);
-      return res.status(500).json({ error: 'Failed to save data to database' });
+      console.error('Processed data sample:', processedData[0]);
+      return res.status(500).json({ 
+        error: 'Failed to save data to database',
+        details: insertError.message,
+        code: insertError.code 
+      });
     }
 
     // Create upload history record
@@ -122,6 +181,8 @@ router.post('/', upload.single('file'), async (req, res) => {
     res.json({
       message: 'File uploaded successfully',
       rowsProcessed: processedData.length,
+      productsFound: uniqueProductNames.length,
+      productNames: uniqueProductNames,
       data: insertedData
     });
 

@@ -1,12 +1,21 @@
 const { createClient } = require('@supabase/supabase-js');
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+// 🔑 Used ONLY to verify user tokens
+const supabaseAuthClient = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase environment variables');
-}
+// 🔐 Used for backend inserts bypassing RLS
+const supabaseServiceClient = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
+);
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-module.exports = supabase;
+module.exports = { supabaseAuthClient, supabaseServiceClient };
