@@ -69,8 +69,12 @@ const Products = () => {
   };
 
   const filteredProducts = products.filter(product =>
-    product.product_name.toLowerCase().includes(searchTerm.toLowerCase())
+    product.product_name.trim().toLowerCase().includes(searchTerm.trim().toLowerCase())
   );
+
+  // Debug logs
+  console.log('Products:', products);
+  console.log('Filtered:', filteredProducts);
 
   const calculateNetProfit = (product: Product) => {
     const revenue = product.total_revenue || 0;
@@ -103,7 +107,7 @@ const Products = () => {
                   Add Product
                 </Button>
               </DialogTrigger>
-              <DialogContent className="bg-gray-800 border-gray-700 text-white">
+              <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Create New Product</DialogTitle>
                 </DialogHeader>
@@ -158,172 +162,21 @@ const Products = () => {
           </div>
         </div>
 
-        {/* Products Grid */}
-        {filteredProducts.length === 0 ? (
-          <Card className="bg-gray-800/50 border-gray-700 backdrop-blur-sm">
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Package className="h-12 w-12 text-gray-400 mb-4" />
-              <h3 className="text-xl font-semibold text-white mb-2">
-                {searchTerm ? 'No products found' : 'No products yet'}
-              </h3>
-              <p className="text-gray-400 text-center mb-6">
-                {searchTerm 
-                  ? 'Try adjusting your search terms' 
-                  : 'Upload some CSV data or create your first product to start tracking performance'
-                }
-              </p>
-              {!searchTerm && (
-                <div className="flex gap-4">
-                  <Button 
-                    onClick={() => navigate('/upload')}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Upload CSV Data
-                  </Button>
-                  <Button 
-                    onClick={() => setIsCreateModalOpen(true)}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Product Manually
-                  </Button>
+        {/* Simple Products List for Debugging */}
+        <div>
+          {filteredProducts && filteredProducts.length > 0 ? (
+            <div>
+              {filteredProducts.map(product => (
+                <div key={product.id} style={{border: "1px solid #444", margin: "10px", padding: "10px", color: "white"}}>
+                  <h3>{product.product_name}</h3>
+                  <p>Revenue per conversion: {product.revenue_per_conversion}</p>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredProducts.map((product) => {
-              const netProfit = calculateNetProfit(product);
-              const roas = (product.total_spend && product.total_spend > 0) 
-                ? ((product.total_revenue || 0) / product.total_spend) * 100 
-                : 0;
-
-              return (
-                <Card key={product.id} className="bg-gray-800/50 border-gray-700 backdrop-blur-sm hover:bg-gray-800/70 transition-colors">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <CardTitle className="text-white text-lg mb-2">{product.product_name}</CardTitle>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">
-                            {product.total_campaigns || 0} campaigns
-                          </Badge>
-                          <Badge variant="secondary" className="text-xs">
-                            {product.best_platform || 'N/A'}
-                          </Badge>
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button
-                          onClick={() => navigate(`/products/${product.id}`)}
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 w-8 p-0"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          onClick={() => handleDeleteProduct(product.id, product.product_name)}
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 w-8 p-0 text-red-400 hover:text-red-300"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Key Metrics */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="text-center p-3 bg-blue-600/20 rounded-lg border border-blue-500/30">
-                        <p className="text-xs text-gray-300 mb-1">ROAS</p>
-                        <p className="text-lg font-bold text-blue-400">{roas.toFixed(1)}%</p>
-                      </div>
-                      <div className="text-center p-3 bg-green-600/20 rounded-lg border border-green-500/30">
-                        <p className="text-xs text-gray-300 mb-1">Net Profit</p>
-                        <p className={`text-lg font-bold ${netProfit > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          ${netProfit.toFixed(0)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Financial Details */}
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Total Spend:</span>
-                        <span className="text-white">${(product.total_spend || 0).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Revenue:</span>
-                        <span className="text-white">${(product.total_revenue || 0).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Revenue/Conv:</span>
-                        <span className="text-white">${(product.revenue_per_conversion || 0).toFixed(2)}</span>
-                      </div>
-                    </div>
-
-                    {/* Action Button */}
-                    <Button
-                      onClick={() => navigate(`/products/${product.id}`)}
-                      className="w-full bg-gray-700 hover:bg-gray-600 text-white"
-                      variant="secondary"
-                    >
-                      <TrendingUp className="h-4 w-4 mr-2" />
-                      View Details
-                    </Button>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Summary Stats */}
-        {filteredProducts.length > 0 && (
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card className="bg-gray-800/50 border-gray-700 backdrop-blur-sm">
-              <CardContent className="p-4 text-center">
-                <p className="text-gray-400 text-sm">Total Products</p>
-                <p className="text-2xl font-bold text-white">{filteredProducts.length}</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-gray-800/50 border-gray-700 backdrop-blur-sm">
-              <CardContent className="p-4 text-center">
-                <p className="text-gray-400 text-sm">Total Spend</p>
-                <p className="text-2xl font-bold text-white">
-                  ${filteredProducts.reduce((sum, p) => sum + (p.total_spend || 0), 0).toFixed(0)}
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="bg-gray-800/50 border-gray-700 backdrop-blur-sm">
-              <CardContent className="p-4 text-center">
-                <p className="text-gray-400 text-sm">Total Revenue</p>
-                <p className="text-2xl font-bold text-white">
-                  ${filteredProducts.reduce((sum, p) => sum + (p.total_revenue || 0), 0).toFixed(0)}
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="bg-gray-800/50 border-gray-700 backdrop-blur-sm">
-              <CardContent className="p-4 text-center">
-                <p className="text-gray-400 text-sm">Avg ROAS</p>
-                <p className="text-2xl font-bold text-white">
-                  {filteredProducts.length > 0 
-                    ? (filteredProducts.reduce((sum, p) => {
-                        const roas = (p.total_spend && p.total_spend > 0) 
-                          ? ((p.total_revenue || 0) / p.total_spend) * 100 
-                          : 0;
-                        return sum + roas;
-                      }, 0) / filteredProducts.length).toFixed(1)
-                    : '0.0'}%
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+              ))}
+            </div>
+          ) : (
+            <div style={{color: "white"}}>No products found</div>
+          )}
+        </div>
       </div>
     </div>
   );
