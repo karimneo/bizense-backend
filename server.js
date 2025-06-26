@@ -121,54 +121,6 @@ app.get('/api/dashboard', async (req, res) => {
   }
 });
 
-// Products routes
-app.get('/api/products', async (req, res) => {
-  try {
-    const user = await getUserFromToken(req.headers.authorization);
-    
-    const { data: products, error } = await supabaseServiceClient
-      .from('products')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (error) throw new Error(error.message);
-
-    res.json({ products: products || [] });
-  } catch (error) {
-    console.error('Products GET error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/products', async (req, res) => {
-  try {
-    const user = await getUserFromToken(req.headers.authorization);
-    const { product_name, revenue_per_conversion } = req.body;
-    
-    if (!product_name) {
-      return res.status(400).json({ error: 'Product name is required' });
-    }
-
-    const { data, error } = await supabaseServiceClient
-      .from('products')
-      .insert({
-        user_id: user.id,
-        product_name,
-        revenue_per_conversion: revenue_per_conversion || 0
-      })
-      .select()
-      .single();
-
-    if (error) throw new Error(error.message);
-
-    res.json(data);
-  } catch (error) {
-    console.error('Products POST error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // Reports route
 app.get('/api/reports', async (req, res) => {
   try {
