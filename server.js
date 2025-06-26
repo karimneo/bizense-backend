@@ -134,7 +134,7 @@ app.get('/api/products', async (req, res) => {
 
     if (error) throw new Error(error.message);
 
-    res.json(products || []);
+    res.json({ products: products || [] });
   } catch (error) {
     console.error('Products GET error:', error);
     res.status(500).json({ error: error.message });
