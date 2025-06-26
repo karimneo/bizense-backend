@@ -26,6 +26,8 @@ router.get('/', async (req, res) => {
       return res.status(500).json({ error: productsError.message });
     }
 
+    console.log('🔍 DEBUG: Found products:', products);
+
     // Get campaign data for each product
     const { data: campaigns, error: campaignsError } = await supabaseServiceClient
       .from('campaign_reports')
@@ -36,11 +38,16 @@ router.get('/', async (req, res) => {
       return res.status(500).json({ error: campaignsError.message });
     }
 
+    console.log('🔍 DEBUG: Found campaigns:', campaigns);
+
     // Calculate performance metrics for each product
     const productsWithMetrics = products.map(product => {
       const productCampaigns = campaigns.filter(c => 
-        c.product_name && c.product_name.toLowerCase().includes(product.product_name.toLowerCase())
+        c.product_name && c.product_name.toLowerCase() === product.product_name.toLowerCase()
       );
+
+      console.log(`🔍 DEBUG: Product "${product.product_name}" has ${productCampaigns.length} matching campaigns`);
+      console.log(`🔍 DEBUG: Campaign product names:`, productCampaigns.map(c => c.product_name));
 
       const totalSpend = productCampaigns.reduce((sum, c) => sum + (c.amount_spent || 0), 0);
       const totalRevenue = productCampaigns.reduce((sum, c) => sum + (c.revenue || 0), 0);
