@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const supabase = require('../config/supabase');
+const { supabaseAuthClient, supabaseServiceClient } = require('../config/supabase');
 
 // Get all products
 router.get('/', async (req, res) => {
@@ -10,13 +10,13 @@ router.get('/', async (req, res) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: authError } = await supabaseAuthClient.auth.getUser(token);
     if (authError) {
       return res.status(401).json({ error: authError.message });
     }
 
     // Get products with performance data
-    const { data: products, error: productsError } = await supabase
+    const { data: products, error: productsError } = await supabaseServiceClient
       .from('products')
       .select('*')
       .eq('user_id', user.id)
@@ -27,7 +27,7 @@ router.get('/', async (req, res) => {
     }
 
     // Get campaign data for each product
-    const { data: campaigns, error: campaignsError } = await supabase
+    const { data: campaigns, error: campaignsError } = await supabaseServiceClient
       .from('campaign_reports')
       .select('*')
       .eq('user_id', user.id);
@@ -78,7 +78,7 @@ router.get('/', async (req, res) => {
       };
     });
 
-    res.json(productsWithMetrics);
+    res.json({ products: productsWithMetrics || [] });
 
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -93,7 +93,7 @@ router.post('/', async (req, res) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: authError } = await supabaseAuthClient.auth.getUser(token);
     if (authError) {
       return res.status(401).json({ error: authError.message });
     }
@@ -104,7 +104,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Product name is required' });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseServiceClient
       .from('products')
       .insert({
         user_id: user.id,
@@ -133,7 +133,7 @@ router.put('/:id', async (req, res) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: authError } = await supabaseAuthClient.auth.getUser(token);
     if (authError) {
       return res.status(401).json({ error: authError.message });
     }
@@ -141,7 +141,7 @@ router.put('/:id', async (req, res) => {
     const { id } = req.params;
     const { product_name, revenue_per_conversion } = req.body;
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseServiceClient
       .from('products')
       .update({
         product_name,
@@ -171,14 +171,14 @@ router.delete('/:id', async (req, res) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: authError } = await supabaseAuthClient.auth.getUser(token);
     if (authError) {
       return res.status(401).json({ error: authError.message });
     }
 
     const { id } = req.params;
 
-    const { error } = await supabase
+    const { error } = await supabaseServiceClient
       .from('products')
       .delete()
       .eq('id', id)
