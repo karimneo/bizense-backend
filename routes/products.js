@@ -35,7 +35,11 @@ router.get('/', async (req, res) => {
 
     console.log('📦 Found products:', products?.length || 0);
     if (products && products.length > 0) {
-      console.log('📦 Product names:', products.map(p => p.product_name));
+      console.log('--- 🕵️ DB Product Names ---');
+      products.forEach(p => {
+        console.log(`  - Name: "${p.product_name}" (Length: ${p.product_name.length}), ID: ${p.id}`);
+      });
+      console.log('--------------------------');
     }
 
     // Get campaign data for each product
