@@ -57,20 +57,33 @@ router.get('/', async (req, res) => {
         c.product_name && c.product_name.toLowerCase() === product.product_name.toLowerCase()
       );
 
-      // New logic to handle summarizing unique campaigns
-      const latestCampaigns = {};
-      for (const campaign of productCampaigns) {
-        // A unique key for each campaign instance (name + start date)
+      // New, more robust logic to find the latest version of each campaign
+      const latestCampaignsMap = productCampaigns.reduce((map, campaign) => {
         const campaignKey = `${campaign.campaign_name}-${campaign.reporting_starts}`;
-        
-        // If we haven't seen this campaign yet, or if the current one is newer, update it
-        if (!latestCampaigns[campaignKey] || new Date(campaign.created_at) > new Date(latestCampaigns[campaignKey].created_at)) {
-          latestCampaigns[campaignKey] = campaign;
-        }
-      }
+        const existing = map.get(campaignKey);
 
-      // Convert the latest campaigns object back to an array
-      const uniqueLatestCampaigns = Object.values(latestCampaigns);
+        if (!existing || new Date(campaign.created_at) > new Date(existing.created_at)) {
+          map.set(campaignKey, campaign);
+        }
+        return map;
+      }, new Map());
+
+      const uniqueLatestCampaigns = Array.from(latestCampaignsMap.values());
+
+      // =================================================================
+      // NEW DIAGNOSTIC LOGGING
+      // =================================================================
+      if (product.product_name.toLowerCase() === 'sa9r') { // Log only for the problem product
+        console.log(`\n--- 🕵️  DIAGNOSTIC FOR PRODUCT: ${product.product_name} ---`);
+        console.log(`Total campaign rows found in DB for this product: ${productCampaigns.length}`);
+        console.log(`Number of unique campaigns after deduplication: ${uniqueLatestCampaigns.length}`);
+        console.log('Final campaigns being used for calculation:');
+        uniqueLatestCampaigns.forEach(c => {
+          console.log(`  - Campaign: "${c.campaign_name}", Spend: ${c.amount_spent}, Date: ${c.reporting_starts}, Created: ${c.created_at}`);
+        });
+        console.log('---------------------------------------------------\n');
+      }
+      // =================================================================
 
       const totalSpend = uniqueLatestCampaigns.reduce((sum, c) => sum + (c.amount_spent || 0), 0);
       const totalConversions = uniqueLatestCampaigns.reduce((sum, c) => sum + (c.conversions || 0), 0);
