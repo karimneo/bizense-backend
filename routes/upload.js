@@ -40,10 +40,43 @@ router.post('/', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'Invalid platform specified' });
     }
 
+    // Enhanced duplicate prevention - check existing campaign data
+    console.log('🔍 ENHANCED DUPLICATE CHECKING...');
+    
+    // IMMEDIATE CHECK: Any upload with same filename in last 10 minutes is blocked
+    const existingUploads = await supabaseServiceClient
+      .from('upload_history')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('file_name', req.file.originalname)
+      .eq('platform', platform)
+      .order('upload_date', { ascending: false })
+      .limit(1);
+
+    if (existingUploads.data && existingUploads.data.length > 0) {
+      const lastUpload = existingUploads.data[0];
+      const lastUploadTime = new Date(lastUpload.upload_date || lastUpload.created_at);
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000); // Increased to 10 minutes
+      
+      console.log('⚠️  FOUND PREVIOUS UPLOAD:');
+      console.log(`   File: ${req.file.originalname}`);
+      console.log(`   Last uploaded: ${lastUploadTime.toISOString()}`);
+      console.log(`   Time difference: ${Math.round((Date.now() - lastUploadTime.getTime()) / 1000)} seconds ago`);
+      
+      if (lastUploadTime > tenMinutesAgo) {
+        return res.status(400).json({ 
+          error: '🚫 DUPLICATE UPLOAD BLOCKED', 
+          details: `File "${req.file.originalname}" was already uploaded ${Math.round((Date.now() - lastUploadTime.getTime()) / 1000)} seconds ago.`,
+          suggestion: 'Wait 10 minutes before uploading the same file again, or rename your file if this is genuinely new data.',
+          timestamp: lastUploadTime.toISOString()
+        });
+      }
+    }
+
     const csvData = [];
     const stream = Readable.from(req.file.buffer.toString());
 
-    // Parse CSV
+    // Parse CSV first to check content
     await new Promise((resolve, reject) => {
       stream
         .pipe(csv())
@@ -58,7 +91,6 @@ router.post('/', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'CSV file is empty or invalid' });
     }
 
-    // Helper function to safely parse numbers
     const parseNumber = (value) => {
       if (!value) return 0;
       const cleaned = String(value).replace(/[^0-9.-]/g, '');
@@ -66,7 +98,6 @@ router.post('/', upload.single('file'), async (req, res) => {
       return isNaN(parsed) ? 0 : parsed;
     };
 
-    // Map common CSV column names to our schema
     const getColumnValue = (row, possibleNames) => {
       for (const name of possibleNames) {
         if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
@@ -76,18 +107,20 @@ router.post('/', upload.single('file'), async (req, res) => {
       return '';
     };
 
-    // Helper function to extract product name from campaign name
     const extractProductName = (campaignName) => {
       if (!campaignName) return '';
-      // Extract everything before the first dash (ProductName - Platform - GEO)
       const parts = campaignName.split(' - ');
       return parts[0].trim();
     };
+
+    // The old duplicate checks have been removed from here.
 
     // Process and insert data
     const processedData = csvData.map(row => {
       const campaignName = getColumnValue(row, ['Campaign name', 'Campaign Name', 'campaign_name', 'Campaign']);
       const extractedProductName = extractProductName(campaignName);
+      const reportingStarts = getColumnValue(row, ['Reporting starts', 'reporting_starts']);
+      const reportingEnds = getColumnValue(row, ['Reporting ends', 'reporting_ends']);
       
       return {
         user_id: user.id,
@@ -100,6 +133,8 @@ router.post('/', upload.single('file'), async (req, res) => {
         conversions: parseNumber(getColumnValue(row, ['Purchases', 'Conversions', 'Orders', 'Results'])),
         clicks: parseNumber(getColumnValue(row, ['Link clicks', 'Clicks', 'Link Clicks'])),
         impressions: parseNumber(getColumnValue(row, ['Impressions', 'Reach'])),
+        reporting_starts: reportingStarts ? new Date(reportingStarts).toISOString() : null,
+        reporting_ends: reportingEnds ? new Date(reportingEnds).toISOString() : null,
         raw_data: row
       };
     });
@@ -147,21 +182,35 @@ router.post('/', upload.single('file'), async (req, res) => {
       }
     }
 
-    // Insert into database
-    const { data: insertedData, error: insertError } = await supabaseServiceClient
-      .from('campaign_reports')
-      .insert(processedData)
-      .select();
+    // Filter out empty rows and process data
+    const validData = processedData.filter(row => 
+      row.campaign_name && 
+      row.campaign_name.trim() !== '' && 
+      !row.campaign_name.includes('Total:') && // Skip summary rows
+      !row.campaign_name.toLowerCase().includes('summary')
+    );
 
-    if (insertError) {
-      console.error('Insert error:', insertError);
-      console.error('Processed data sample:', processedData[0]);
-      return res.status(500).json({ 
-        error: 'Failed to save data to database',
-        details: insertError.message,
-        code: insertError.code 
+    console.log(`📊 Processing ${validData.length} valid rows out of ${processedData.length} total rows`);
+
+    if (validData.length === 0) {
+      return res.status(400).json({ 
+        error: 'No valid data found in CSV',
+        details: 'All rows appear to be empty or summary rows. Please check your CSV format.'
       });
     }
+
+    // Upsert campaign data instead of inserting
+    const { data: upsertedCampaigns, error: campaignError } = await supabaseServiceClient
+      .from('campaign_reports')
+      .upsert(validData, { onConflict: 'user_id, campaign_name, reporting_starts' })
+      .select();
+
+    if (campaignError) {
+      console.error('Error upserting campaign data:', campaignError);
+      return res.status(500).json({ error: 'Failed to save campaign data', details: campaignError.message });
+    }
+
+    console.log(`✅ Upserted ${upsertedCampaigns.length} campaign records`);
 
     // Create upload history record
     const { error: historyError } = await supabaseServiceClient
@@ -170,24 +219,76 @@ router.post('/', upload.single('file'), async (req, res) => {
         user_id: user.id,
         file_name: req.file.originalname,
         platform: platform,
-        rows_processed: processedData.length,
-        status: 'completed'
+        records_processed: validData.length,
+        upload_date: new Date().toISOString()
       });
 
     if (historyError) {
-      console.error('History error:', historyError);
+      console.error('Error creating upload history:', historyError);
     }
 
     res.json({
-      message: 'File uploaded successfully',
-      rowsProcessed: processedData.length,
-      productsFound: uniqueProductNames.length,
-      productNames: uniqueProductNames,
-      data: insertedData
+      message: 'File uploaded and processed successfully',
+      recordsProcessed: validData.length,
+      productsCreated: uniqueProductNames.length,
+      data: upsertedCampaigns
     });
 
   } catch (error) {
     console.error('Upload error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message 
+    });
+  }
+});
+
+// Cleanup duplicate data endpoint
+router.delete('/cleanup/:fileName', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const { data: { user }, error: authError } = await supabaseAuthClient.auth.getUser(token);
+    if (authError) {
+      return res.status(401).json({ error: authError.message });
+    }
+
+    const { fileName } = req.params;
+    const { platform } = req.body;
+
+    console.log(`🧹 Cleaning up data for file: ${fileName}, platform: ${platform}`);
+
+    // Delete campaign reports for this file
+    const { error: campaignError } = await supabaseServiceClient
+      .from('campaign_reports')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('file_name', fileName)
+      .eq('platform', platform);
+
+    if (campaignError) {
+      console.error('Error deleting campaigns:', campaignError);
+    }
+
+    // Delete upload history
+    const { error: historyError } = await supabaseServiceClient
+      .from('upload_history')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('file_name', fileName)
+      .eq('platform', platform);
+
+    if (historyError) {
+      console.error('Error deleting upload history:', historyError);
+    }
+
+    res.json({ message: 'Data cleaned up successfully' });
+
+  } catch (error) {
+    console.error('Cleanup error:', error);
     res.status(500).json({ error: error.message });
   }
 });
