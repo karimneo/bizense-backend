@@ -1,8 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-
-const API_BASE_URL = 'https://bizense-backend.onrender.com/api';
+import { API_BASE_URL } from '@/config/api';
 
 const getAuthToken = async () => {
   const { data: { session } } = await supabase.auth.getSession();

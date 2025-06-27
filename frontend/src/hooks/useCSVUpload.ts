@@ -2,8 +2,7 @@
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-
-const API_BASE_URL = 'https://bizense-backend.onrender.com/api';
+import { API_BASE_URL } from '@/config/api';
 
 const getAuthToken = async () => {
   const { data: { session } } = await supabase.auth.getSession();
@@ -18,9 +17,30 @@ export const useCSVUpload = () => {
     error: null,
     success: false
   });
+  
+  // Track recent uploads to prevent duplicates
+  const [recentUploads, setRecentUploads] = useState<{[key: string]: number}>({});
 
   const uploadCSV = async (file: File, platform: string, startDate?: string, endDate?: string) => {
     try {
+      // Check for recent uploads of the same file
+      const uploadKey = `${file.name}-${platform}`;
+      const now = Date.now();
+      const fiveMinutesAgo = now - (5 * 60 * 1000);
+      
+      if (recentUploads[uploadKey] && recentUploads[uploadKey] > fiveMinutesAgo) {
+        const secondsAgo = Math.round((now - recentUploads[uploadKey]) / 1000);
+        const errorMessage = `Duplicate upload detected. File "${file.name}" was uploaded ${secondsAgo} seconds ago. Please wait before uploading again.`;
+        
+        toast({
+          title: 'Duplicate upload prevented',
+          description: errorMessage,
+          variant: 'destructive'
+        });
+        
+        throw new Error(errorMessage);
+      }
+      
       setUploadState({
         uploading: true,
         progress: 0,
@@ -87,6 +107,12 @@ export const useCSVUpload = () => {
         result = { message: 'Upload completed' };
       }
 
+      // Track this successful upload
+      setRecentUploads(prev => ({
+        ...prev,
+        [uploadKey]: now
+      }));
+      
       setUploadState({
         uploading: false,
         progress: 100,
@@ -127,6 +153,18 @@ export const useCSVUpload = () => {
       progress: 0,
       error: null,
       success: false
+    });
+    
+    // Clean up old upload tracking (older than 5 minutes)
+    const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+    setRecentUploads(prev => {
+      const cleaned = { ...prev };
+      Object.keys(cleaned).forEach(key => {
+        if (cleaned[key] < fiveMinutesAgo) {
+          delete cleaned[key];
+        }
+      });
+      return cleaned;
     });
   };
 

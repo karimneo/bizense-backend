@@ -162,19 +162,64 @@ const Products = () => {
           </div>
         </div>
 
-        {/* Simple Products List for Debugging */}
-        <div>
+        {/* Products Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProducts && filteredProducts.length > 0 ? (
-            <div>
-              {filteredProducts.map(product => (
-                <div key={product.id} style={{border: "1px solid #444", margin: "10px", padding: "10px", color: "white"}}>
-                  <h3>{product.product_name}</h3>
-                  <p>Revenue per conversion: {product.revenue_per_conversion}</p>
-                </div>
-              ))}
-            </div>
+            filteredProducts.map(product => (
+              <Card key={product.id} className="bg-gray-800 border-gray-700 hover:bg-gray-750 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/products/${product.id}`)}>
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Package className="h-5 w-5" />
+                      {product.product_name}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/products/${product.id}`);
+                      }}
+                      className="text-gray-400 hover:text-white"
+                    >
+                      <Edit3 className="h-4 w-4" />
+                    </Button>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-red-500/10 p-3 rounded-lg border border-red-500/20">
+                      <div className="text-red-400 text-sm">Total Spend</div>
+                      <div className="text-red-300 text-xl font-bold">
+                        ${typeof product.total_spend === 'number' ? product.total_spend.toFixed(2) : '0.00'}
+                      </div>
+                    </div>
+                    <div className="bg-green-500/10 p-3 rounded-lg border border-green-500/20">
+                      <div className="text-green-400 text-sm">Total Revenue</div>
+                      <div className="text-green-300 text-xl font-bold">
+                        ${typeof product.total_revenue === 'number' ? product.total_revenue.toFixed(2) : '0.00'}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between text-sm text-gray-300">
+                    <span>ROAS: {typeof product.roas === 'number' ? product.roas.toFixed(2) : '0.00'}x</span>
+                    <span>Platform: {product.best_platform || 'N/A'}</span>
+                  </div>
+
+                  <div className="text-xs text-gray-500">
+                    Click to edit manual fields (Unit Cost, Selling Price, Units Delivered)
+                  </div>
+                </CardContent>
+              </Card>
+            ))
           ) : (
-            <div style={{color: "white"}}>No products found</div>
+            <div className="col-span-full text-center text-gray-400 py-12">
+              <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>No products found</p>
+              <p className="text-sm">Upload a CSV file or create a product manually</p>
+            </div>
           )}
         </div>
       </div>

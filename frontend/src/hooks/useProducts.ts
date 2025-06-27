@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { API_BASE_URL } from "@/config/api";
 
 interface Product {
   id: number;
@@ -18,8 +19,6 @@ interface ProductWithStats extends Product {
   total_revenue?: number;
   total_spend?: number;
 }
-
-const API_BASE_URL = 'https://bizense-backend.onrender.com/api';
 
 const getAuthToken = async () => {
   const { data: { session } } = await supabase.auth.getSession();
