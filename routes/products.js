@@ -134,11 +134,16 @@ router.get('/', async (req, res) => {
 
       let bestPlatform = 'N/A';
       let bestRoas = 0;
+      let bestSpend = 0;
+      
       for (const [platform, metrics] of Object.entries(platformPerformance)) {
         const platformRoas = metrics.spend > 0 ? metrics.revenue / metrics.spend : 0;
         platformPerformance[platform].roas = platformRoas;
-        if (platformRoas > bestRoas) {
+        
+        // Use ROAS if available, otherwise use highest spend platform
+        if (platformRoas > bestRoas || (bestRoas === 0 && metrics.spend > bestSpend)) {
           bestRoas = platformRoas;
+          bestSpend = metrics.spend;
           bestPlatform = platform;
         }
       }
@@ -223,8 +228,12 @@ router.get('/', async (req, res) => {
 // Get single product detail with daily breakdown
 router.get('/:id', async (req, res) => {
   try {
+    console.log(`🔍 Product detail API called for ID: ${req.params.id}`);
+    
     const user = await getUserFromToken(req.headers.authorization);
     const { id } = req.params;
+
+    console.log(`✅ User authenticated for product detail: ${user.id}`);
 
     // Get product details
     const { data: product, error: productError } = await supabaseServiceClient
@@ -235,8 +244,11 @@ router.get('/:id', async (req, res) => {
       .single();
 
     if (productError) {
+      console.log(`❌ Product not found: ${productError.message}`);
       return res.status(404).json({ error: 'Product not found' });
     }
+
+    console.log(`📦 Found product: ${product.product_name}`);
 
     // Get all campaigns for this product
     const { data: campaigns, error: campaignsError } = await supabaseServiceClient
@@ -246,19 +258,32 @@ router.get('/:id', async (req, res) => {
       .ilike('product_name', product.product_name);
 
     if (campaignsError) {
+      console.log(`❌ Campaigns error: ${campaignsError.message}`);
       return res.status(500).json({ error: campaignsError.message });
     }
 
-    // Get daily data
-    const { data: dailyData, error: dailyError } = await supabaseServiceClient
-      .from('product_daily_data')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('product_id', id)
-      .order('date', { ascending: true });
+    console.log(`📊 Found ${campaigns?.length || 0} campaigns for product`);
 
-    if (dailyError) {
-      return res.status(500).json({ error: dailyError.message });
+    // Get daily data (with error handling for missing table)
+    let dailyData = [];
+    try {
+      const { data, error: dailyError } = await supabaseServiceClient
+        .from('product_daily_data')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('product_id', id)
+        .order('date', { ascending: true });
+
+      if (dailyError) {
+        console.log(`⚠️ Daily data table error (table might not exist): ${dailyError.message}`);
+        dailyData = []; // Continue without daily data
+      } else {
+        dailyData = data || [];
+        console.log(`📅 Found ${dailyData.length} daily data records`);
+      }
+    } catch (error) {
+      console.log(`⚠️ Daily data fetch failed (table might not exist): ${error.message}`);
+      dailyData = []; // Continue without daily data
     }
 
     // Process campaigns by date
@@ -370,6 +395,9 @@ router.get('/:id', async (req, res) => {
       roas: totalSpend > 0 ? Number((totalRevenue / totalSpend).toFixed(2)) : 0
     };
 
+    console.log(`📤 Sending product detail response for ${product.product_name}`);
+    console.log(`📊 Aggregated metrics:`, aggregatedMetrics);
+
     res.json({
       product,
       dailyBreakdown: Object.values(dailyBreakdown).sort((a, b) => new Date(a.date) - new Date(b.date)),
@@ -379,6 +407,7 @@ router.get('/:id', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Product detail error:', error);
+    console.error('❌ Error stack:', error.stack);
     res.status(500).json({ error: error.message });
   }
 });
