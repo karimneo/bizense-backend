@@ -286,7 +286,7 @@ router.get('/:id', async (req, res) => {
       dailyData = []; // Continue without daily data
     }
 
-    // Process campaigns by date
+    // Process campaigns by date for daily breakdown
     const campaignsByDate = campaigns.reduce((acc, campaign) => {
       if (campaign.reporting_starts) {
         const date = campaign.reporting_starts.split('T')[0]; // Get date part only
@@ -322,20 +322,29 @@ router.get('/:id', async (req, res) => {
       const dayClicks = uniqueCampaigns.reduce((sum, c) => sum + (c.clicks || 0), 0);
       const dayImpressions = uniqueCampaigns.reduce((sum, c) => sum + (c.impressions || 0), 0);
 
+      // Calculate daily revenue and profit using manual fields if no daily data available
+      const dailyUnitsDelivered = Math.floor((product.units_delivered || 0) / Object.keys(campaignsByDate).length);
+      const dailyRevenue = (product.selling_price || 0) * dailyUnitsDelivered;
+      const dailyProductCost = (product.unit_cost || 0) * dailyUnitsDelivered;
+      const dailyProfit = dailyRevenue - dailyProductCost - daySpend;
+
       dailyBreakdown[date] = {
         date,
-        spend: daySpend,
+        spend: Number(daySpend.toFixed(2)),
         conversions: dayConversions,
         clicks: dayClicks,
         impressions: dayImpressions,
         campaigns: uniqueCampaigns.length,
-        units_delivered: 0, // Will be updated from daily data
-        revenue: 0,
-        profit: 0
+        units_delivered: dailyUnitsDelivered,
+        revenue: Number(dailyRevenue.toFixed(2)),
+        profit: Number(dailyProfit.toFixed(2)),
+        roi: daySpend > 0 ? Number(((dailyProfit / daySpend) * 100).toFixed(2)) : 0,
+        roas: daySpend > 0 ? Number((dailyRevenue / daySpend).toFixed(2)) : 0,
+        platform: uniqueCampaigns[0]?.platform || 'Mixed'
       };
     });
 
-    // Add manual daily data
+    // Add manual daily data (override calculated values if available)
     dailyData.forEach(daily => {
       const date = daily.date;
       if (!dailyBreakdown[date]) {
@@ -353,46 +362,117 @@ router.get('/:id', async (req, res) => {
       }
       
       // Update with manual data
-      dailyBreakdown[date].units_delivered = daily.units_delivered || 0;
-      dailyBreakdown[date].manual_revenue = daily.manual_revenue || 0;
+      if (daily.units_delivered !== null && daily.units_delivered !== undefined) {
+        dailyBreakdown[date].units_delivered = daily.units_delivered;
+        
+        // Recalculate revenue and profit with manual units
+        const sellingPrice = product.selling_price || 0;
+        const unitCost = product.unit_cost || 0;
+        const dayRevenue = sellingPrice * daily.units_delivered;
+        const dayProductCost = unitCost * daily.units_delivered;
+        const dayProfit = dayRevenue - dayProductCost - dailyBreakdown[date].spend;
+        
+        dailyBreakdown[date].revenue = Number(dayRevenue.toFixed(2));
+        dailyBreakdown[date].profit = Number(dayProfit.toFixed(2));
+        dailyBreakdown[date].roi = dailyBreakdown[date].spend > 0 ? Number(((dayProfit / dailyBreakdown[date].spend) * 100).toFixed(2)) : 0;
+        dailyBreakdown[date].roas = dailyBreakdown[date].spend > 0 ? Number((dayRevenue / dailyBreakdown[date].spend).toFixed(2)) : 0;
+      }
+      
       if (daily.manual_spend) {
         dailyBreakdown[date].spend += daily.manual_spend;
       }
       dailyBreakdown[date].notes = daily.notes;
     });
 
-    // Calculate daily revenue and profit
-    Object.values(dailyBreakdown).forEach(day => {
-      const unitsDelivered = day.units_delivered;
-      const sellingPrice = product.selling_price || 0;
-      const unitCost = product.unit_cost || 0;
-      
-      // Use manual revenue if provided, otherwise calculate
-      const dayRevenue = day.manual_revenue || (sellingPrice * unitsDelivered);
-      const dayProductCost = unitCost * unitsDelivered;
-      const dayProfit = dayRevenue - dayProductCost - day.spend;
-      
-      day.revenue = Number(dayRevenue.toFixed(2));
-      day.profit = Number(dayProfit.toFixed(2));
-      day.roi = day.spend > 0 ? Number(((dayProfit / day.spend) * 100).toFixed(2)) : 0;
-      day.roas = day.spend > 0 ? Number((dayRevenue / day.spend).toFixed(2)) : 0;
-    });
+    // Calculate aggregated totals using SAME LOGIC as product list for consistency
+    
+    // Get campaign totals (same logic as product list)
+    const uniqueLatestCampaigns = campaigns.reduce((map, campaign) => {
+      const campaignKey = `${campaign.campaign_name}-${campaign.reporting_starts}`;
+      const existing = map.get(campaignKey);
+      if (!existing || new Date(campaign.created_at || 0) > new Date(existing.created_at || 0)) {
+        map.set(campaignKey, campaign);
+      }
+      return map;
+    }, new Map());
 
-    // Calculate aggregated totals
-    const totalSpend = Object.values(dailyBreakdown).reduce((sum, day) => sum + day.spend, 0);
-    const totalRevenue = Object.values(dailyBreakdown).reduce((sum, day) => sum + day.revenue, 0);
-    const totalConversions = Object.values(dailyBreakdown).reduce((sum, day) => sum + day.conversions, 0);
-    const totalUnitsDelivered = Object.values(dailyBreakdown).reduce((sum, day) => sum + day.units_delivered, 0);
-    const totalProfit = Object.values(dailyBreakdown).reduce((sum, day) => sum + day.profit, 0);
+    const latestCampaigns = Array.from(uniqueLatestCampaigns.values());
+    
+    const totalSpend = latestCampaigns.reduce((sum, c) => sum + (c.amount_spent || 0), 0);
+    const totalConversions = latestCampaigns.reduce((sum, c) => sum + (c.conversions || 0), 0);
+    const totalClicks = latestCampaigns.reduce((sum, c) => sum + (c.clicks || 0), 0);
+    const totalImpressions = latestCampaigns.reduce((sum, c) => sum + (c.impressions || 0), 0);
+
+    // Manual field values (SAME as product list)
+    const unitsDelivered = Number(product.units_delivered) || 0;
+    const sellingPrice = Number(product.selling_price) || 0;
+    const unitCost = Number(product.unit_cost) || 0;
+    const stockPurchased = Number(product.stock_purchased) || 0;
+    const testingBudget = Number(product.testing_budget) || 0; // New field
+
+    // EXACT SAME CALCULATIONS as product list
+    const calculatedRevenue = sellingPrice * unitsDelivered;
+    const totalProductCost = unitCost * unitsDelivered;
+    const totalStockInvestment = stockPurchased * unitCost; // New: total stock investment
+    
+    // Enhanced profit calculations
+    const deliveredProfit = calculatedRevenue - totalProductCost - totalSpend; // Current delivered profit
+    const totalInvestment = totalStockInvestment + totalSpend + testingBudget; // Total investment including stock
+    const totalProfit = calculatedRevenue - totalInvestment; // Total profit considering all investment
+    
+    const roi = totalSpend > 0 ? (deliveredProfit / totalSpend) * 100 : 0;
+    const roas = totalSpend > 0 ? calculatedRevenue / totalSpend : 0;
+    const totalROI = totalInvestment > 0 ? (totalProfit / totalInvestment) * 100 : 0; // ROI on total investment
+
+    // Platform analysis (same as product list)
+    const platformPerformance = latestCampaigns.reduce((acc, campaign) => {
+      const platform = campaign.platform;
+      if (!acc[platform]) {
+        acc[platform] = { spend: 0, revenue: 0, conversions: 0, clicks: 0 };
+      }
+      acc[platform].spend += campaign.amount_spent || 0;
+      acc[platform].conversions += campaign.conversions || 0;
+      acc[platform].clicks += campaign.clicks || 0;
+      return acc;
+    }, {});
+
+    let bestPlatform = 'N/A';
+    let bestRoas = 0;
+    let bestSpend = 0;
+    
+    for (const [platform, metrics] of Object.entries(platformPerformance)) {
+      const platformRoas = metrics.spend > 0 ? calculatedRevenue / metrics.spend : 0;
+      platformPerformance[platform].roas = platformRoas;
+      
+      if (platformRoas > bestRoas || (bestRoas === 0 && metrics.spend > bestSpend)) {
+        bestRoas = platformRoas;
+        bestSpend = metrics.spend;
+        bestPlatform = platform;
+      }
+    }
 
     const aggregatedMetrics = {
       total_spend: Number(totalSpend.toFixed(2)),
-      total_revenue: Number(totalRevenue.toFixed(2)),
+      total_revenue: Number(calculatedRevenue.toFixed(2)),
       total_conversions: totalConversions,
-      total_units_delivered: totalUnitsDelivered,
-      total_profit: Number(totalProfit.toFixed(2)),
-      roi: totalSpend > 0 ? Number(((totalProfit / totalSpend) * 100).toFixed(2)) : 0,
-      roas: totalSpend > 0 ? Number((totalRevenue / totalSpend).toFixed(2)) : 0
+      total_clicks: totalClicks,
+      total_impressions: totalImpressions,
+      total_units_delivered: unitsDelivered,
+      delivered_profit: Number(deliveredProfit.toFixed(2)), // Profit from delivered units only
+      total_profit: Number(totalProfit.toFixed(2)), // Profit considering total investment
+      total_investment: Number(totalInvestment.toFixed(2)), // Total money invested
+      stock_investment: Number(totalStockInvestment.toFixed(2)), // Money tied up in stock
+      roi: Number(roi.toFixed(2)), // ROI on ad spend only
+      total_roi: Number(totalROI.toFixed(2)), // ROI on total investment
+      roas: Number(roas.toFixed(2)),
+      best_platform: bestPlatform,
+      platform_performance: platformPerformance,
+      // Product fields for editing
+      unit_cost: Number(unitCost.toFixed(2)),
+      selling_price: Number(sellingPrice.toFixed(2)),
+      units_delivered: unitsDelivered,
+      stock_purchased: stockPurchased,
+      testing_budget: testingBudget
     };
 
     console.log(`📤 Sending product detail response for ${product.product_name}`);
@@ -495,7 +575,8 @@ router.put('/:id', async (req, res) => {
       unit_cost,
       selling_price,
       units_delivered,
-      stock_purchased
+      stock_purchased,
+      testing_budget
     } = req.body;
 
     // Build update object with only provided fields
@@ -506,6 +587,7 @@ router.put('/:id', async (req, res) => {
     if (selling_price !== undefined) updateData.selling_price = selling_price;
     if (units_delivered !== undefined) updateData.units_delivered = units_delivered;
     if (stock_purchased !== undefined) updateData.stock_purchased = stock_purchased;
+    if (testing_budget !== undefined) updateData.testing_budget = testing_budget;
 
     console.log(`🔄 Updating product ${id} with:`, updateData);
 
@@ -556,7 +638,7 @@ router.delete('/:id', async (req, res) => {
 router.put('/bulk-update', async (req, res) => {
   try {
     const user = await getUserFromToken(req.headers.authorization);
-    const { updates } = req.body; // Array of { id, unit_cost, selling_price, units_delivered, stock_purchased }
+    const { updates } = req.body; // Array of { id, unit_cost, selling_price, units_delivered, stock_purchased, testing_budget }
 
     if (!updates || !Array.isArray(updates)) {
       return res.status(400).json({ error: 'Updates array is required' });
@@ -569,7 +651,7 @@ router.put('/bulk-update', async (req, res) => {
 
     for (const update of updates) {
       try {
-        const { id, unit_cost, selling_price, units_delivered, stock_purchased } = update;
+        const { id, unit_cost, selling_price, units_delivered, stock_purchased, testing_budget } = update;
 
         // Build update object with only provided fields
         const updateData = {};
@@ -577,6 +659,7 @@ router.put('/bulk-update', async (req, res) => {
         if (selling_price !== undefined) updateData.selling_price = Number(selling_price) || 0;
         if (units_delivered !== undefined) updateData.units_delivered = Number(units_delivered) || 0;
         if (stock_purchased !== undefined) updateData.stock_purchased = Number(stock_purchased) || 0;
+        if (testing_budget !== undefined) updateData.testing_budget = Number(testing_budget) || 0;
 
         const { data, error } = await supabaseServiceClient
           .from('products')
