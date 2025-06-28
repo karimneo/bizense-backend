@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import DashboardLayout from '@/components/DashboardLayout';
@@ -49,66 +48,48 @@ const ProductDetail = () => {
   });
   const [loading, setLoading] = useState(true);
 
-  // Mock data - replace with actual API calls
+  // Real API calls to connect to your backend
   useEffect(() => {
-    // Simulate API call
-    setTimeout(() => {
-      const mockProduct: ProductMetrics = {
-        id: id || '1',
-        product_name: 'SuperSlim Pro',
-        unit_cost: 15.50,
-        selling_price: 49.99,
-        units_delivered: 1250,
-        stock_purchased: 1500,
-        total_ad_spend: 2800.00,
-        total_leads: 5600,
-        total_confirmed_leads: 1680,
-        total_delivered_orders: 1250,
-      };
+    const fetchProduct = async () => {
+      if (!id) return;
+      
+      try {
+        setLoading(true);
+        const token = localStorage.getItem('supabase-auth-token');
+        
+        console.log('🔍 Fetching product with ID:', id);
+        
+        const response = await fetch(`http://localhost:3001/api/products/${id}/detail`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
 
-      const mockCampaigns: CampaignData[] = [
-        {
-          id: '1',
-          campaign_name: 'SuperSlim Pro - Facebook - USA',
-          platform: 'Facebook',
-          amount_spent: 1200.00,
-          leads: 2400,
-          confirmed_leads: 720,
-          delivered_orders: 540,
-          date_created: '2024-01-15',
-        },
-        {
-          id: '2',
-          campaign_name: 'SuperSlim Pro - TikTok - Canada',
-          platform: 'TikTok',
-          amount_spent: 900.00,
-          leads: 1800,
-          confirmed_leads: 540,
-          delivered_orders: 400,
-          date_created: '2024-01-20',
-        },
-        {
-          id: '3',
-          campaign_name: 'SuperSlim Pro - Google - UK',
-          platform: 'Google',
-          amount_spent: 700.00,
-          leads: 1400,
-          confirmed_leads: 420,
-          delivered_orders: 310,
-          date_created: '2024-01-25',
-        },
-      ];
+        if (!response.ok) {
+          throw new Error(`Failed to fetch product: ${response.status}`);
+        }
 
-      setProduct(mockProduct);
-      setCampaigns(mockCampaigns);
-      setEditValues({
-        unit_cost: mockProduct.unit_cost,
-        selling_price: mockProduct.selling_price,
-        units_delivered: mockProduct.units_delivered,
-        stock_purchased: mockProduct.stock_purchased,
-      });
-      setLoading(false);
-    }, 1000);
+        const data = await response.json();
+        console.log('✅ Product data received:', data);
+        
+        setProduct(data);
+        setEditValues({
+          unit_cost: data.unit_cost || 0,
+          selling_price: data.selling_price || 0,
+          units_delivered: data.units_delivered || 0,
+          stock_purchased: data.stock_purchased || 0,
+        });
+        
+      } catch (error) {
+        console.error('❌ Failed to fetch product:', error);
+        toast.error('Failed to load product details');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProduct();
   }, [id]);
 
   // Calculate metrics
@@ -138,13 +119,44 @@ const ProductDetail = () => {
 
   const metrics = calculateMetrics();
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!product) return;
     
-    // Here you would make API call to update product
-    setProduct(prev => prev ? { ...prev, ...editValues } : null);
-    setIsEditing(false);
-    toast.success('Product updated successfully!');
+    try {
+      const token = localStorage.getItem('supabase-auth-token');
+      
+      console.log('💾 Saving product with values:', editValues);
+      
+      const response = await fetch(`http://localhost:3001/api/products/${product.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          unit_cost: editValues.unit_cost,
+          selling_price: editValues.selling_price,
+          units_delivered: editValues.units_delivered,
+          stock_purchased: editValues.stock_purchased,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to update product: ${response.status}`);
+      }
+
+      const updatedProduct = await response.json();
+      console.log('✅ Product updated successfully:', updatedProduct);
+      
+      // Update local state with new values
+      setProduct(prev => prev ? { ...prev, ...editValues } : null);
+      setIsEditing(false);
+      toast.success('Product updated successfully!');
+      
+    } catch (error) {
+      console.error('❌ Failed to update product:', error);
+      toast.error('Failed to update product. Please try again.');
+    }
   };
 
   const handleCancel = () => {
